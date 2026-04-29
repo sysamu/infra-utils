@@ -3,8 +3,9 @@
 # con valores calculados a partir del hardware del host.
 #
 # Uso directo:
-#   curl -fsSL https://raw.githubusercontent.com/sysamu/infra-utils/main/postgres/sysctl/apply-tuning.sh | sudo bash
-#   curl -fsSL https://raw.githubusercontent.com/sysamu/infra-utils/main/postgres/sysctl/apply-tuning.sh | sudo bash -s -- --dry-run
+#   curl -fsSL https://raw.githubusercontent.com/sysamu/infra-utils/main/postgres/sysctl/apply-tuning.sh | sudo bash --first-init
+#   curl -fsSL https://raw.githubusercontent.com/sysamu/infra-utils/main/postgres/sysctl/apply-tuning.sh | sudo bash -s -- --prod-ready
+#   curl -fsSL https://raw.githubusercontent.com/sysamu/infra-utils/main/postgres/sysctl/apply-tuning.sh | sudo bash -s -- --prod-ready --dry-run
 
 set -euo pipefail
 
@@ -24,19 +25,41 @@ header(){ echo -e "\n${BOLD}$*${NC}"; }
 # Flags
 # ---------------------------------------------------------------------------
 DRY_RUN=false
+RAID_MODE=""   # first-init | prod-ready
+
 for arg in "$@"; do
     case "$arg" in
         --dry-run|--print) DRY_RUN=true ;;
+        --first-init)      RAID_MODE="first-init" ;;
+        --prod-ready)      RAID_MODE="prod-ready" ;;
         --help|-h)
-            echo "Uso: bash apply-tuning.sh [--dry-run]"
-            echo "  --dry-run  Muestra el fichero generado sin aplicar nada"
+            echo "Uso: bash apply-tuning.sh [--first-init|--prod-ready] [--dry-run]"
+            echo "  --first-init  RAID resync sin límite — para el resync inicial"
+            echo "  --prod-ready  RAID resync limitado — para producción"
+            echo "  --dry-run     Muestra el fichero generado sin aplicar nada"
             exit 0 ;;
     esac
 done
 
+[[ -n "$RAID_MODE" ]] || fatal "Especifica el modo: --first-init o --prod-ready"
+
 $DRY_RUN || [[ $EUID -eq 0 ]] || fatal "Ejecuta como root."
 
 DEST="/etc/sysctl.d/99-postgres-tuning.conf"
+
+# ---------------------------------------------------------------------------
+# RAID resync speed según modo
+# ---------------------------------------------------------------------------
+case "$RAID_MODE" in
+    first-init)
+        RAID_SPEED_MIN=4000000
+        RAID_SPEED_MAX=6000000
+        ;;
+    prod-ready)
+        RAID_SPEED_MIN=1000000
+        RAID_SPEED_MAX=3000000
+        ;;
+esac
 
 # ---------------------------------------------------------------------------
 # Detección de hardware
@@ -48,6 +71,7 @@ RAM_GB=$(( RAM_MB / 1024 ))
 
 header "=== PostgreSQL sysctl tuning ==="
 info "Hardware detectado: ${NCPUS} CPUs | ${RAM_GB}GB RAM"
+info "Modo RAID resync: ${RAID_MODE} (speed_limit_min=${RAID_SPEED_MIN} max=${RAID_SPEED_MAX})"
 
 # ---------------------------------------------------------------------------
 # Cálculos
@@ -150,6 +174,12 @@ net.core.rps_sock_flow_entries = ${RPS_SOCK_FLOW_ENTRIES}
 # -------------------------
 net.ipv4.conf.all.rp_filter = 0
 net.ipv4.conf.default.rp_filter = 0
+
+# -------------------------
+# MDADM RAID RESYNC (${RAID_MODE})
+# -------------------------
+dev.raid.speed_limit_min = ${RAID_SPEED_MIN}
+dev.raid.speed_limit_max = ${RAID_SPEED_MAX}
 EOF
 )
 
