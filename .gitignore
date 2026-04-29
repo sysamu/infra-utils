@@ -1,0 +1,25 @@
+# Secrets y configuración local
+*.env
+*.local
+*.secret
+secrets/
+credentials/
+.env.*
+
+# Backups generados por los scripts
+*.bak
+*.bak.*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log
+logs/
