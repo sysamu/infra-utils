@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Genera y aplica /etc/sysctl.d/99-postgres-tuning.conf
-# con valores calculados a partir del hardware del host.
+# Genera y aplica /etc/sysctl.d/99-postgres-tuning.conf,
+# instala irqbalance y despliega el servicio de tuning en tiempo real del MD.
 #
 # Uso directo:
-#   curl -fsSL https://raw.githubusercontent.com/sysamu/infra-utils/main/postgres/sysctl/apply-tuning.sh | sudo bash --first-init
+#   curl -fsSL https://raw.githubusercontent.com/sysamu/infra-utils/main/postgres/sysctl/apply-tuning.sh | sudo bash -s -- --first-init
 #   curl -fsSL https://raw.githubusercontent.com/sysamu/infra-utils/main/postgres/sysctl/apply-tuning.sh | sudo bash -s -- --prod-ready
 #   curl -fsSL https://raw.githubusercontent.com/sysamu/infra-utils/main/postgres/sysctl/apply-tuning.sh | sudo bash -s -- --prod-ready --dry-run
 
@@ -34,18 +34,19 @@ for arg in "$@"; do
         --prod-ready)      RAID_MODE="prod-ready" ;;
         --help|-h)
             echo "Uso: bash apply-tuning.sh [--first-init|--prod-ready] [--dry-run]"
-            echo "  --first-init  RAID resync sin límite — para el resync inicial"
-            echo "  --prod-ready  RAID resync limitado — para producción"
-            echo "  --dry-run     Muestra el fichero generado sin aplicar nada"
+            echo "  --first-init  RAID resync a tope — para el resync inicial tras crear el array"
+            echo "  --prod-ready  RAID resync limitado — para no impactar I/O de Postgres en prod"
+            echo "  --dry-run     Muestra lo que haría sin aplicar nada"
             exit 0 ;;
     esac
 done
 
 [[ -n "$RAID_MODE" ]] || fatal "Especifica el modo: --first-init o --prod-ready"
-
 $DRY_RUN || [[ $EUID -eq 0 ]] || fatal "Ejecuta como root."
 
 DEST="/etc/sysctl.d/99-postgres-tuning.conf"
+MD_TUNING_SCRIPT="/usr/local/sbin/md-postgres-tuning.sh"
+MD_TUNING_SERVICE="/etc/systemd/system/md-postgres-tuning.service"
 
 # ---------------------------------------------------------------------------
 # RAID resync speed según modo
@@ -71,10 +72,46 @@ RAM_GB=$(( RAM_MB / 1024 ))
 
 header "=== PostgreSQL sysctl tuning ==="
 info "Hardware detectado: ${NCPUS} CPUs | ${RAM_GB}GB RAM"
-info "Modo RAID resync: ${RAID_MODE} (speed_limit_min=${RAID_SPEED_MIN} max=${RAID_SPEED_MAX})"
+info "Modo RAID resync:   ${RAID_MODE} (min=${RAID_SPEED_MIN} max=${RAID_SPEED_MAX})"
 
 # ---------------------------------------------------------------------------
-# Cálculos
+# Detección del MD de PostgreSQL
+# Busca el MD que tiene /var/lib/postgresql montado,
+# o en su defecto el primer MD activo que no sea del OS.
+# ---------------------------------------------------------------------------
+detect_postgres_md() {
+    # Primero: MD montado en /var/lib/postgresql
+    local md
+    md=$(findmnt -n -o SOURCE /var/lib/postgresql 2>/dev/null || true)
+    if [[ -n "$md" ]]; then
+        basename "$md"
+        return
+    fi
+
+    # Segundo: cualquier MD activo que no esté montado en / /boot /efi
+    while IFS= read -r name; do
+        local mount
+        mount=$(findmnt -n -o TARGET "/dev/${name}" 2>/dev/null || true)
+        if [[ -z "$mount" || ! "$mount" =~ ^(/|/boot|/efi) ]]; then
+            echo "$name"
+            return
+        fi
+    done < <(lsblk -lno NAME,TYPE | awk '$2=="raid"{print $1}')
+
+    echo ""
+}
+
+POSTGRES_MD=$(detect_postgres_md)
+
+if [[ -n "$POSTGRES_MD" ]]; then
+    info "MD detectado:       /dev/${POSTGRES_MD}"
+else
+    warn "No se detectó ningún MD de PostgreSQL. El servicio de tuning se instalará pero no podrá aplicar hasta que exista el array."
+    POSTGRES_MD="md0"   # placeholder que el script de tuning re-detectará en runtime
+fi
+
+# ---------------------------------------------------------------------------
+# Cálculos de parámetros
 # ---------------------------------------------------------------------------
 
 # TCP buffer max: min(RAM/8, 128MB) en bytes
@@ -104,21 +141,42 @@ RPS_SOCK_FLOW_ENTRIES=$rps
 FILE_MAX=$(( NCPUS * 1000 ))
 [[ $FILE_MAX -lt 1000000 ]] && FILE_MAX=1000000
 
+# ---------------------------------------------------------------------------
+# Parámetros del MD tuning script
+#
+# group_thread_cnt: hilos de I/O del MD. CPUs/4, clamp [4, 32].
+#   Más hilos = más paralelismo en rebuild y escrituras concurrentes,
+#   pero demasiados compiten con Postgres. 16 es el sweet spot para 80 cores.
+#
+# nr_requests: profundidad de cola del bloque. Para NVMe con alta concurrencia
+#   el valor por defecto (256) se queda corto. 16384 permite saturar el
+#   hardware sin bloquear la cola.
+# ---------------------------------------------------------------------------
+GROUP_THREAD_CNT=$(( NCPUS / 4 ))
+[[ $GROUP_THREAD_CNT -lt 4  ]] && GROUP_THREAD_CNT=4
+[[ $GROUP_THREAD_CNT -gt 32 ]] && GROUP_THREAD_CNT=32
+
+NR_REQUESTS=16384   # fijo — óptimo para NVMe con colas profundas
+SETRA=65536         # 32MB read-ahead (512B sectores): óptimo para rebuild + sequential
+
 info "Parámetros calculados:"
 info "  TCP buffer max          = $(( TCP_BUF_MAX / 1024 / 1024 ))MB"
 info "  somaxconn               = ${SOMAXCONN}"
 info "  netdev_max_backlog      = ${NETDEV_BACKLOG}"
 info "  rps_sock_flow_entries   = ${RPS_SOCK_FLOW_ENTRIES}"
 info "  fs.file-max             = ${FILE_MAX}"
+info "  md group_thread_cnt     = ${GROUP_THREAD_CNT}  (CPUs/4, clamp 4-32)"
+info "  md nr_requests          = ${NR_REQUESTS}"
+info "  md read-ahead           = $(( SETRA / 2 ))MB"
 
 # ---------------------------------------------------------------------------
-# Generación del fichero
+# Contenido del sysctl
 # ---------------------------------------------------------------------------
 CONF=$(cat <<EOF
 # /etc/sysctl.d/99-postgres-tuning.conf
 # Generado por infra-utils/postgres/sysctl/apply-tuning.sh
 # Host: $(hostname) | CPUs: ${NCPUS} | RAM: ${RAM_GB}GB | Fecha: $(date +%F)
-# Regenerar con: curl -fsSL https://raw.githubusercontent.com/sysamu/infra-utils/main/postgres/sysctl/apply-tuning.sh | sudo bash
+# Regenerar: curl -fsSL https://raw.githubusercontent.com/sysamu/infra-utils/main/postgres/sysctl/apply-tuning.sh | sudo bash -s -- --${RAID_MODE}
 
 # -------------------------
 # MEMORY / POSTGRES
@@ -184,26 +242,116 @@ EOF
 )
 
 # ---------------------------------------------------------------------------
-# Aplicar o mostrar
+# Contenido del script de tuning en runtime del MD
+# Re-detecta el MD en cada arranque para no depender de un nombre hardcodeado.
 # ---------------------------------------------------------------------------
-if $DRY_RUN; then
-    header "Fichero que se escribiría en ${DEST}:"
-    echo "---"
-    echo "$CONF"
-    echo "---"
+MD_SCRIPT=$(cat <<'SCRIPT'
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Detectar el MD montado en /var/lib/postgresql
+MD=$(findmnt -n -o SOURCE /var/lib/postgresql 2>/dev/null | xargs -r basename || true)
+
+if [[ -z "$MD" ]]; then
+    echo "md-postgres-tuning: no MD found at /var/lib/postgresql, skipping." >&2
     exit 0
 fi
 
-if [[ -f "$DEST" ]]; then
-    BACKUP="${DEST}.bak.$(date +%Y%m%d%H%M%S)"
-    cp "$DEST" "$BACKUP"
-    warn "Backup del fichero anterior: ${BACKUP}"
+echo "Applying MD runtime tuning to /dev/${MD}"
+
+NCPUS=$(nproc)
+GROUP_THREAD_CNT=$(( NCPUS / 4 ))
+[[ $GROUP_THREAD_CNT -lt 4  ]] && GROUP_THREAD_CNT=4
+[[ $GROUP_THREAD_CNT -gt 32 ]] && GROUP_THREAD_CNT=32
+
+echo ${GROUP_THREAD_CNT} > /sys/block/${MD}/md/group_thread_cnt 2>/dev/null || true
+echo 16384               > /sys/block/${MD}/queue/nr_requests    2>/dev/null || true
+blockdev --setra 65536     /dev/${MD}
+
+echo "Done: group_thread_cnt=${GROUP_THREAD_CNT} nr_requests=16384 read-ahead=32MB"
+SCRIPT
+)
+
+# ---------------------------------------------------------------------------
+# Contenido del unit de systemd
+# ---------------------------------------------------------------------------
+MD_UNIT=$(cat <<EOF
+[Unit]
+Description=PostgreSQL MD runtime tuning
+After=local-fs.target
+
+[Service]
+Type=oneshot
+ExecStart=${MD_TUNING_SCRIPT}
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+EOF
+)
+
+# ---------------------------------------------------------------------------
+# Dry-run: mostrar todo y salir
+# ---------------------------------------------------------------------------
+if $DRY_RUN; then
+    header "sysctl → ${DEST}"
+    echo "---"; echo "$CONF"; echo "---"
+
+    header "MD tuning script → ${MD_TUNING_SCRIPT}"
+    echo "---"; echo "$MD_SCRIPT"; echo "---"
+
+    header "systemd unit → ${MD_TUNING_SERVICE}"
+    echo "---"; echo "$MD_UNIT"; echo "---"
+
+    info "irqbalance: se instalaría y habilitaría"
+    exit 0
 fi
 
+# ---------------------------------------------------------------------------
+# 1. sysctl
+# ---------------------------------------------------------------------------
+header "1/4 — Aplicando sysctl..."
+if [[ -f "$DEST" ]]; then
+    cp "$DEST" "${DEST}.bak.$(date +%Y%m%d%H%M%S)"
+    warn "Backup del fichero anterior guardado."
+fi
 echo "$CONF" > "$DEST"
-ok "Escrito: ${DEST}"
-
-info "Aplicando con sysctl..."
 sysctl -p "$DEST"
+ok "sysctl aplicado."
 
-ok "Tuning aplicado."
+# ---------------------------------------------------------------------------
+# 2. irqbalance
+# ---------------------------------------------------------------------------
+header "2/4 — Instalando irqbalance..."
+if command -v irqbalance &>/dev/null; then
+    ok "irqbalance ya instalado."
+else
+    apt-get install -y -q irqbalance
+    ok "irqbalance instalado."
+fi
+systemctl enable --now irqbalance
+ok "irqbalance activo."
+
+# ---------------------------------------------------------------------------
+# 3. MD tuning script
+# ---------------------------------------------------------------------------
+header "3/4 — Instalando script de tuning del MD..."
+echo "$MD_SCRIPT" > "$MD_TUNING_SCRIPT"
+chmod 750 "$MD_TUNING_SCRIPT"
+ok "Script instalado en ${MD_TUNING_SCRIPT}"
+
+# ---------------------------------------------------------------------------
+# 4. Systemd unit
+# ---------------------------------------------------------------------------
+header "4/4 — Registrando servicio systemd..."
+echo "$MD_UNIT" > "$MD_TUNING_SERVICE"
+systemctl daemon-reload
+systemctl enable --now md-postgres-tuning.service
+ok "Servicio md-postgres-tuning activo y habilitado en el arranque."
+
+# ---------------------------------------------------------------------------
+# Estado final
+# ---------------------------------------------------------------------------
+header "=== Completado ==="
+systemctl status md-postgres-tuning.service --no-pager || true
+ok "Tuning aplicado. Modo: ${RAID_MODE}"
