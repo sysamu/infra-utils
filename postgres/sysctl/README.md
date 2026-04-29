@@ -3,14 +3,14 @@
 Script que genera y aplica `/etc/sysctl.d/99-postgres-tuning.conf` con valores
 calculados a partir del hardware del host (CPUs y RAM).
 
-## Uso
+## One-liner
 
 ```bash
-# Ver qué generaría sin aplicar nada
-bash apply-tuning.sh --dry-run
+# Aplicar
+curl -fsSL https://raw.githubusercontent.com/sysamu/infra-utils/main/postgres/sysctl/apply-tuning.sh | sudo bash
 
-# Aplicar (requiere root)
-bash apply-tuning.sh
+# Dry-run (muestra el fichero generado sin tocar nada)
+curl -fsSL https://raw.githubusercontent.com/sysamu/infra-utils/main/postgres/sysctl/apply-tuning.sh | sudo bash -s -- --dry-run
 ```
 
 ## Parámetros fijos (no dependen del hardware)
