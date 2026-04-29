@@ -122,10 +122,18 @@ disk_size_human() {
 
 # ---------------------------------------------------------------------------
 # Elegir MD device libre
+# Tiene en cuenta /dev/md/mdX (OVH) y /dev/mdX (estándar)
 # ---------------------------------------------------------------------------
 next_free_md() {
     local n=0
-    while [[ -e "/dev/md${n}" ]]; do n=$(( n + 1 )); done
+    while true; do
+        # Ocupado si existe como device directo O bajo /dev/md/
+        if [[ -e "/dev/md${n}" || -e "/dev/md/md${n}" ]]; then
+            n=$(( n + 1 ))
+        else
+            break
+        fi
+    done
     echo "/dev/md${n}"
 }
 
@@ -364,20 +372,23 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# 7. mdadm.conf (sin duplicar)
+# 7. mdadm.conf — añadir solo este array, sin duplicar
 # ---------------------------------------------------------------------------
 header "7/9 — Actualizando /etc/mdadm/mdadm.conf..."
 if ! $DRY_RUN; then
     MDADM_CONF="/etc/mdadm/mdadm.conf"
     MD_UUID=$(mdadm --detail "$MD_DEVICE" | awk '/UUID/{print $3}')
+
     if grep -qsF "$MD_UUID" "$MDADM_CONF" 2>/dev/null; then
-        warn "Array ya presente en ${MDADM_CONF} — no se duplica."
+        warn "Array ${MD_DEVICE} (UUID=${MD_UUID}) ya presente en ${MDADM_CONF} — no se duplica."
     else
-        mdadm --detail --scan >> "$MDADM_CONF"
-        ok "mdadm.conf actualizado."
+        # Construir solo la línea ARRAY de este MD, sin tocar los demás
+        ARRAY_LINE=$(mdadm --detail --scan "$MD_DEVICE")
+        echo "$ARRAY_LINE" >> "$MDADM_CONF"
+        ok "mdadm.conf: añadido ${ARRAY_LINE}"
     fi
 else
-    warn "[DRY-RUN] Se añadiría el array a /etc/mdadm/mdadm.conf"
+    warn "[DRY-RUN] Se añadiría la línea ARRAY de ${MD_DEVICE} a /etc/mdadm/mdadm.conf"
 fi
 
 # ---------------------------------------------------------------------------
