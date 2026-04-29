@@ -47,6 +47,7 @@ $DRY_RUN || [[ $EUID -eq 0 ]] || fatal "Ejecuta como root."
 DEST="/etc/sysctl.d/99-postgres-tuning.conf"
 MD_TUNING_SCRIPT="/usr/local/sbin/md-postgres-tuning.sh"
 MD_TUNING_SERVICE="/etc/systemd/system/md-postgres-tuning.service"
+MD_TUNING_URL="https://raw.githubusercontent.com/sysamu/infra-utils/main/postgres/sysctl/md-postgres-tuning.sh"
 
 # ---------------------------------------------------------------------------
 # RAID resync speed según modo
@@ -241,36 +242,6 @@ dev.raid.speed_limit_max = ${RAID_SPEED_MAX}
 EOF
 )
 
-# ---------------------------------------------------------------------------
-# Contenido del script de tuning en runtime del MD
-# Re-detecta el MD en cada arranque para no depender de un nombre hardcodeado.
-# ---------------------------------------------------------------------------
-MD_SCRIPT=$(cat <<'SCRIPT'
-#!/usr/bin/env bash
-set -euo pipefail
-
-# Detectar el MD montado en /var/lib/postgresql
-MD=$(findmnt -n -o SOURCE /var/lib/postgresql 2>/dev/null | xargs -r basename || true)
-
-if [[ -z "$MD" ]]; then
-    echo "md-postgres-tuning: no MD found at /var/lib/postgresql, skipping." >&2
-    exit 0
-fi
-
-echo "Applying MD runtime tuning to /dev/${MD}"
-
-NCPUS=$(nproc)
-GROUP_THREAD_CNT=$(( NCPUS / 4 ))
-[[ $GROUP_THREAD_CNT -lt 4  ]] && GROUP_THREAD_CNT=4
-[[ $GROUP_THREAD_CNT -gt 32 ]] && GROUP_THREAD_CNT=32
-
-echo ${GROUP_THREAD_CNT} > /sys/block/${MD}/md/group_thread_cnt 2>/dev/null || true
-echo 16384               > /sys/block/${MD}/queue/nr_requests    2>/dev/null || true
-blockdev --setra 65536     /dev/${MD}
-
-echo "Done: group_thread_cnt=${GROUP_THREAD_CNT} nr_requests=16384 read-ahead=32MB"
-SCRIPT
-)
 
 # ---------------------------------------------------------------------------
 # Contenido del unit de systemd
@@ -298,7 +269,7 @@ if $DRY_RUN; then
     echo "---"; echo "$CONF"; echo "---"
 
     header "MD tuning script → ${MD_TUNING_SCRIPT}"
-    echo "---"; echo "$MD_SCRIPT"; echo "---"
+    info "Se descargaría desde: ${MD_TUNING_URL}"
 
     header "systemd unit → ${MD_TUNING_SERVICE}"
     echo "---"; echo "$MD_UNIT"; echo "---"
@@ -335,8 +306,8 @@ ok "irqbalance activo."
 # ---------------------------------------------------------------------------
 # 3. MD tuning script
 # ---------------------------------------------------------------------------
-header "3/4 — Instalando script de tuning del MD..."
-echo "$MD_SCRIPT" > "$MD_TUNING_SCRIPT"
+header "3/4 — Descargando script de tuning del MD..."
+curl -fsSL "$MD_TUNING_URL" -o "$MD_TUNING_SCRIPT"
 chmod 750 "$MD_TUNING_SCRIPT"
 ok "Script instalado en ${MD_TUNING_SCRIPT}"
 
