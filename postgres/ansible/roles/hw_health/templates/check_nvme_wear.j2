@@ -1,0 +1,5 @@
+check program nvme_wear
+  with path "/usr/local/bin/check_nvme_wear.sh"
+  every 60 cycles
+  if status == 1 for 1 cycles then alert
+  if status == 2 for 1 cycles then alert

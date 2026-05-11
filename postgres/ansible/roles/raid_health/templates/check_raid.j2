@@ -1,0 +1,3 @@
+check program raid_{{ item }} with path "/usr/local/bin/check_mdadm.sh {{ item }}"
+  every 2 cycles
+  if status != 0 for {{ monit_raid_alert_cycles }} cycles then alert

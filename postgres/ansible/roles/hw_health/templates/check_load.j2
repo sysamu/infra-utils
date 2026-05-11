@@ -1,0 +1,4 @@
+check program system_load
+  with path "/usr/local/bin/check_load.sh"
+  every {{ monit_hw_check_cycles }} cycles
+  if status != 0 for 3 cycles then alert

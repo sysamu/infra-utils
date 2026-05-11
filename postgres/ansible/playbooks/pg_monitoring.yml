@@ -1,0 +1,12 @@
+---
+# Despliega postgres_exporter + checks monit en todos los nodos Postgres.
+#
+#   ansible-playbook playbooks/pg_monitoring.yml -i inventory/hosts.yml
+#
+# Variables requeridas en group_vars o como -e:
+#   pg_monitoring_password   (usar ansible-vault en producción)
+
+- name: Bootstrap Postgres monitoring
+  hosts: pg_all
+  roles:
+    - role: postgres_monitoring

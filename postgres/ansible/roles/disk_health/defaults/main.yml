@@ -1,0 +1,18 @@
+---
+alert_email: ""
+
+# smartd: intervalo de chequeo en minutos
+smartd_check_interval: 30
+
+# Umbrales SMART para monit
+# reallocated: discos viejos pueden tener sectores históricos estables — ajustar según hardware
+smart_realloc_warn: 5
+smart_pending_warn: 1
+
+# Temperatura SATA/SAS
+smart_temp_warn_c: 55
+smart_temp_crit_c: 65
+
+# Temperatura NVMe — Tcrit fabricante típico ~87°C
+nvme_temp_warn_c: 70
+nvme_temp_crit_c: 82

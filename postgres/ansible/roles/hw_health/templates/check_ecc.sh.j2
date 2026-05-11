@@ -1,0 +1,32 @@
+#!/bin/bash
+# ECC memory errors via edac-utils.
+# Alerta si hay errores corregibles (CE) acumulados o cualquier error no corregible (UE).
+
+if ! command -v edac-util &>/dev/null; then
+  echo "UNKNOWN: edac-utils not installed"
+  exit 3
+fi
+
+OUTPUT=$(edac-util -v 2>/dev/null)
+RC=$?
+
+if [[ $RC -ne 0 || -z "$OUTPUT" ]]; then
+  echo "UNKNOWN: edac-util returned no data — ECC may not be supported or EDAC module not loaded"
+  exit 3
+fi
+
+UE=$(echo "$OUTPUT" | awk '/Uncorrected Errors/ {s+=$2} END {print s+0}')
+CE=$(echo "$OUTPUT" | awk '/Corrected Errors/ {s+=$2} END {print s+0}')
+
+if (( UE > 0 )); then
+  echo "CRITICAL: ECC uncorrectable errors UE=${UE} CE=${CE} — hardware fault, replace DIMM"
+  exit 2
+fi
+
+if (( CE > 0 )); then
+  echo "WARNING: ECC correctable errors CE=${CE} — monitor closely, possible DIMM degradation"
+  exit 1
+fi
+
+echo "OK: ECC no errors (UE=0 CE=0)"
+exit 0

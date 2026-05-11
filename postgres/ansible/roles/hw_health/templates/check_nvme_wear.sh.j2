@@ -1,0 +1,55 @@
+#!/bin/bash
+# NVMe wear level — lee "Percentage Used" de cada NVMe presente.
+# Un valor alto indica que el disco se acerca al fin de su vida útil.
+
+WARN={{ nvme_wear_warn_pct }}
+CRIT={{ nvme_wear_crit_pct }}
+
+if ! command -v smartctl &>/dev/null; then
+  echo "UNKNOWN: smartmontools not installed"
+  exit 2
+fi
+
+{% raw %}
+NVME_DEVS=$(ls /dev/nvme?n? 2>/dev/null)
+if [[ -z "$NVME_DEVS" ]]; then
+  echo "OK: no NVMe devices found"
+  exit 0
+fi
+
+WORST_PCT=0
+WORST_DEV=""
+DETAILS=()
+
+for DEV in $NVME_DEVS; do
+  PCT=$(smartctl -d nvme -A "$DEV" 2>/dev/null \
+    | grep -i "Percentage Used" \
+    | grep -oP '\d+(?=%)' | head -1)
+  [[ -z "$PCT" ]] && continue
+  DETAILS+=("${DEV}=${PCT}%")
+  if (( PCT > WORST_PCT )); then
+    WORST_PCT=$PCT
+    WORST_DEV="$DEV"
+  fi
+done
+
+if [[ ${#DETAILS[@]} -eq 0 ]]; then
+  echo "UNKNOWN: no NVMe wear data available (smartctl may need root)"
+  exit 2
+fi
+
+SUMMARY="${DETAILS[*]}"
+{% endraw %}
+
+if (( WORST_PCT >= CRIT )); then
+  echo "CRITICAL: NVMe wear ${WORST_DEV}=${WORST_PCT}% (threshold: ${CRIT}%) — ${SUMMARY}"
+  exit 1
+fi
+
+if (( WORST_PCT >= WARN )); then
+  echo "WARNING: NVMe wear ${WORST_DEV}=${WORST_PCT}% (threshold: ${WARN}%) — ${SUMMARY}"
+  exit 1
+fi
+
+echo "OK: NVMe wear levels OK — ${SUMMARY}"
+exit 0

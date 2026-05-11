@@ -1,0 +1,5 @@
+## Managed by Ansible — do not edit manually
+# Alerta si /var/log supera {{ monit_varlog_limit }} bytes (~2GB) — suele indicar que algo ha petado
+check program varlog_size with path "/usr/local/bin/monit_check_dirsize.sh /var/log {{ monit_varlog_limit }}"
+  every 5 cycles
+  if status != 0 then alert

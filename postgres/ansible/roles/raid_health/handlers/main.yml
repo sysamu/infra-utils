@@ -1,0 +1,13 @@
+---
+- name: restart mdadm-monitor
+  ansible.builtin.shell: |
+    for svc in mdadm mdmonitor mdadm-monitor; do
+      systemctl list-unit-files "${svc}.service" 2>/dev/null | grep -q "${svc}" && systemctl restart "$svc" && exit 0
+    done
+    exit 0
+  changed_when: false
+
+- name: reload monit
+  ansible.builtin.service:
+    name: monit
+    state: reloaded

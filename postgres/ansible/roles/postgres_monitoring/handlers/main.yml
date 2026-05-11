@@ -1,0 +1,14 @@
+---
+- name: reload systemd
+  ansible.builtin.systemd:
+    daemon_reload: true
+
+- name: restart postgres_exporter
+  ansible.builtin.service:
+    name: postgres_exporter
+    state: restarted
+
+- name: reload monit
+  ansible.builtin.service:
+    name: monit
+    state: reloaded

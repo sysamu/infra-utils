@@ -1,0 +1,15 @@
+---
+# Autodiscover arrays RAID, discos y hardware. Verifica salud y configura alertas.
+# Seguro de ejecutar en cualquier momento — solo lee y configura, nunca destruye.
+#
+#   ansible-playbook playbooks/raid_disk_health.yml -i inventory/hosts.yml
+#
+# Para un host específico:
+#   ansible-playbook playbooks/raid_disk_health.yml -i inventory/hosts.yml --limit pg-htz-01
+
+- name: RAID, disk and hardware health check + monitoring setup
+  hosts: bare_metal
+  roles:
+    - role: raid_health
+    - role: disk_health
+    - role: hw_health

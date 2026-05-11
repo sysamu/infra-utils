@@ -1,0 +1,19 @@
+---
+# pg_version NO se define aquí — se autodetecta via pg_lsclusters.
+# Definirlo en host_vars solo si necesitas forzar un cluster concreto.
+pg_port: 5432   # usado como fallback si la autodetección falla
+
+pg_monitoring_user: monitoring
+pg_monitoring_password: "CHANGE_ME"
+
+# postgres_exporter
+pg_exporter_version: "0.15.0"
+pg_exporter_port: 9187
+pg_exporter_user: postgres_exporter
+pg_exporter_install_dir: /opt/postgres_exporter
+
+# monit (solo aplica si monit está instalado)
+monit_pg_max_connections_warn: 200
+monit_pg_max_connections_crit: 400
+monit_pg_replication_lag_warn_mb: 100
+monit_pg_replication_lag_crit_mb: 500

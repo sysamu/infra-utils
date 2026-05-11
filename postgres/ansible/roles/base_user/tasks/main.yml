@@ -1,0 +1,32 @@
+---
+- name: Create ansible deploy user
+  ansible.builtin.user:
+    name: "{{ ansible_deploy_user }}"
+    shell: "{{ ansible_deploy_user_shell }}"
+    create_home: true
+    system: false
+    state: present
+
+- name: Authorize ops public key
+  ansible.posix.authorized_key:
+    user: "{{ ansible_deploy_user }}"
+    state: present
+    key: "{{ ansible_deploy_pubkey }}"
+
+- name: Authorize CI runner key (optional)
+  ansible.posix.authorized_key:
+    user: "{{ ansible_deploy_user }}"
+    state: present
+    key: "{{ ansible_deploy_pubkey_ci }}"
+  when: ansible_deploy_pubkey_ci is defined and ansible_deploy_pubkey_ci | length > 0
+
+- name: Grant passwordless sudo
+  ansible.builtin.copy:
+    dest: "/etc/sudoers.d/{{ ansible_deploy_user }}"
+    content: "{{ ansible_deploy_user }} ALL=(ALL) NOPASSWD: ALL\n"
+    owner: root
+    group: root
+    mode: "0440"
+    validate: "visudo -cf %s"
+
+# Root SSH access is managed externally — not touched here.

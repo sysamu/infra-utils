@@ -1,0 +1,5 @@
+check program cpu_temp
+  with path "/usr/local/bin/check_cpu_temp.sh"
+  every {{ monit_hw_check_cycles }} cycles
+  if status == 1 for 2 cycles then alert
+  if status == 2 for 2 cycles then alert

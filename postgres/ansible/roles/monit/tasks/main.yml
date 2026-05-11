@@ -1,0 +1,101 @@
+---
+- name: Install monit
+  ansible.builtin.apt:
+    name: monit
+    state: present
+    update_cache: true
+
+- name: Deploy monit main config
+  ansible.builtin.template:
+    src: monitrc.j2
+    dest: /etc/monit/monitrc
+    owner: root
+    group: root
+    mode: "0600"
+  notify: restart monit
+
+- name: Deploy monit_check_dirsize.sh helper
+  ansible.builtin.copy:
+    src: monit_check_dirsize.sh
+    dest: /usr/local/bin/monit_check_dirsize.sh
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Ensure conf.d directory exists
+  ansible.builtin.file:
+    path: /etc/monit/conf.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Remove obsolete check files from older deployments
+  ansible.builtin.file:
+    path: "/etc/monit/conf.d/{{ item }}"
+    state: absent
+  loop:
+    - check_cpu
+    - check_memory
+  notify: reload monit
+
+- name: Deploy system checks
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/etc/monit/conf.d/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - check_system
+    - check_disk_root
+    - check_disk_varlog
+    - check_inodes
+  notify: reload monit
+
+- name: Deploy extra filesystem checks
+  ansible.builtin.template:
+    src: check_disk_extra.j2
+    dest: "/etc/monit/conf.d/check_disk_{{ item.name }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop: "{{ monit_extra_filesystems }}"
+  when: monit_extra_filesystems | length > 0
+  notify: reload monit
+
+- name: Fix systemd override — foreground mode + capabilities for hw checks
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/monit.service.d/override.conf
+    content: |
+      [Service]
+      ExecStart=
+      ExecStart=/usr/bin/monit -I -c /etc/monit/monitrc
+      # Allow smartctl/edac-util to access raw hardware from monit program checks
+      CapabilityBoundingSet=CAP_DAC_READ_SEARCH CAP_NET_RAW CAP_SYS_PTRACE CAP_SYS_RAWIO CAP_SYS_ADMIN
+      AmbientCapabilities=CAP_SYS_RAWIO CAP_SYS_ADMIN
+      MemoryDenyWriteExecute=false
+      NoNewPrivileges=false
+      ProtectSystem=false
+      PrivateDevices=false
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - reload systemd
+    - restart monit
+
+- name: Kill orphan monit processes before starting
+  ansible.builtin.shell: |
+    PIDS=$(pgrep -x monit 2>/dev/null || true)
+    if [[ -n "$PIDS" ]]; then
+      kill -9 $PIDS 2>/dev/null || true
+      sleep 1
+    fi
+  changed_when: false
+
+- name: Enable and start monit
+  ansible.builtin.service:
+    name: monit
+    enabled: true
+    state: started

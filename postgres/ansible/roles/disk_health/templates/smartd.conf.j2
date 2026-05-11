@@ -1,0 +1,23 @@
+# Managed by Ansible — do not edit manually
+# smartd checks every {{ smartd_check_interval }} minutes
+
+{% for disk in smart_capable_disks %}
+{% if 'nvme' in disk %}
+# NVMe — Tcrit fabricante ~87°C, alertar a {{ nvme_temp_warn_c }}°C
+{{ disk }} -d nvme -a -n standby,q \
+  -W 0,{{ nvme_temp_warn_c }},{{ nvme_temp_crit_c }} \
+  -s S/../../7/02 \
+{% if alert_email %}  -m {{ alert_email }} \{% endif %}
+  -M exec /usr/share/smartmontools/smartd-runner
+
+{% else %}
+# SATA/SAS
+{{ disk }} -a -n standby,q \
+  -W 0,{{ smart_temp_warn_c }},{{ smart_temp_crit_c }} \
+  -s S/../../7/02 \
+  -o on \
+{% if alert_email %}  -m {{ alert_email }} \{% endif %}
+  -M exec /usr/share/smartmontools/smartd-runner
+
+{% endif %}
+{% endfor %}

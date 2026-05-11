@@ -6,6 +6,15 @@ secrets/
 credentials/
 .env.*
 
+# Ansible — datos reales (usar los .example como plantilla, nunca commitear estos)
+**/ansible/ansible.cfg
+**/ansible/inventory/hosts.yml
+**/ansible/inventory/group_vars/all.yml
+**/ansible/inventory/host_vars/
+**/ansible/.vault_pass
+**/ansible/vault_pass.txt
+**/ansible/*.retry
+
 # Backups generados por los scripts
 *.bak
 *.bak.*

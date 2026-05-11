@@ -1,0 +1,7 @@
+---
+# Email para alertas mdadm
+alert_email: ""
+alert_email_from: "mdadm-alerts@{{ inventory_hostname }}"
+
+# monit: ciclos antes de alertar sobre array degradado
+monit_raid_alert_cycles: 2

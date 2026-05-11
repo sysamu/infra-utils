@@ -1,0 +1,36 @@
+---
+monit_daemon_interval: 60
+monit_log: /var/log/monit.log
+monit_idfile: /var/lib/monit/id
+monit_statefile: /var/lib/monit/state
+
+# HTTP interface — puerto custom para no colisionar con el default 2812
+monit_httpd_enabled: true
+monit_httpd_port: 7780
+monit_httpd_bind: "0.0.0.0"
+monit_httpd_user: admin
+monit_httpd_password: "changeme"   # sobreescribir en group_vars con ansible-vault
+
+# Alertas por mail
+monit_mail_enabled: false
+monit_mail_server: ""
+monit_mail_port: 587
+monit_mail_from: ""
+monit_mail_to: ""
+
+# Umbrales sistema
+monit_cpu_user_warn: 80
+monit_cpu_user_crit: 95
+monit_cpu_cycles: 5
+monit_mem_warn: 85
+monit_mem_crit: 95
+monit_disk_warn: 80
+monit_disk_crit: 90
+monit_inode_warn: 80
+monit_inode_crit: 90
+monit_varlog_limit: 2147483648     # 2 GB
+
+# Filesystems extra a monitorizar (además de / y /var/log)
+# - name: data
+#   path: /var/lib/postgresql
+monit_extra_filesystems: []

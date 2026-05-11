@@ -1,0 +1,127 @@
+---
+- name: Install smartmontools
+  ansible.builtin.apt:
+    name: smartmontools
+    state: present
+    update_cache: true
+
+# ── Autodiscovery de discos ───────────────────────────────────────────────────
+
+- name: Discover all block devices (NVMe + SATA/SAS)
+  ansible.builtin.shell: |
+    ls /dev/nvme?n? 2>/dev/null || true
+    ls /dev/sd? 2>/dev/null || true
+  register: _raw_disks
+  changed_when: false
+
+- name: Set discovered_disks fact
+  ansible.builtin.set_fact:
+    discovered_disks: "{{ _raw_disks.stdout_lines | select('match', '^/dev/(nvme|sd)') | list }}"
+
+- name: Report discovered disks
+  ansible.builtin.debug:
+    msg: "Disks found: {{ discovered_disks | join(', ') if discovered_disks else 'none' }}"
+
+# ── Snapshot SMART inmediato — fallo anticipado ───────────────────────────────
+
+- name: Run SMART health check on each disk
+  ansible.builtin.shell: |
+    DEV="{{ item }}"
+    TYPE_ARGS=""
+    if echo "$DEV" | grep -q nvme; then TYPE_ARGS="-d nvme"; fi
+    /usr/sbin/smartctl $TYPE_ARGS -H "$DEV" 2>&1 | grep -i "self-assessment test result" || echo "NO_RESULT"
+  loop: "{{ discovered_disks }}"
+  register: _smart_health
+  changed_when: false
+  failed_when: false
+
+- name: Warn on disks not passing SMART overall health
+  ansible.builtin.debug:
+    msg: "WARNING: {{ item.item }} SMART health FAILED — check immediately"
+  when: item.stdout is not search('PASSED')
+  loop: "{{ _smart_health.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+
+# ── Configurar smartd para monitoreo continuo ─────────────────────────────────
+
+- name: Set smart_capable_disks fact (para smartd.conf)
+  ansible.builtin.set_fact:
+    smart_capable_disks: "{{ discovered_disks }}"
+
+- name: Deploy smartd.conf
+  ansible.builtin.template:
+    src: smartd.conf.j2
+    dest: /etc/smartd.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: restart smartd
+
+- name: Enable and start smartd
+  ansible.builtin.service:
+    name: smartd
+    enabled: true
+    state: started
+
+# ── Scripts de check para monit ───────────────────────────────────────────────
+
+- name: Deploy check scripts
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: "/usr/local/bin/{{ item }}"
+    owner: root
+    group: root
+    mode: "0755"
+  loop:
+    - check_smart_health.sh
+    - check_mdadm.sh
+
+- name: Deploy check_nvme_temp.sh
+  ansible.builtin.template:
+    src: check_nvme_temp.sh.j2
+    dest: /usr/local/bin/check_nvme_temp.sh
+    owner: root
+    group: root
+    mode: "0755"
+
+# ── Monit ─────────────────────────────────────────────────────────────────────
+
+- name: Check if monit is installed
+  ansible.builtin.command: which monit
+  register: _monit_present
+  changed_when: false
+  failed_when: false
+
+- name: Remove old per-disk monit smart checks
+  ansible.builtin.shell: |
+    rm -f /etc/monit/conf.d/check_smart_dev_*
+    echo "cleaned"
+  changed_when: true
+  when: _monit_present.rc == 0
+  notify: reload monit
+
+- name: Deploy monit unified smart health check
+  ansible.builtin.copy:
+    dest: /etc/monit/conf.d/check_smart_health
+    content: |
+      check program smart_health
+        with path "/usr/local/bin/check_smart_health.sh"
+        every 3 cycles
+        if status == 1 for 2 cycles then alert
+        if status == 2 for 1 cycles then alert
+    owner: root
+    group: root
+    mode: "0644"
+  when: _monit_present.rc == 0
+  notify: reload monit
+
+- name: Deploy monit nvme_temp check
+  ansible.builtin.template:
+    src: check_nvme_temp.j2
+    dest: /etc/monit/conf.d/check_nvme_temp
+    owner: root
+    group: root
+    mode: "0644"
+  when: _monit_present.rc == 0
+  notify: reload monit

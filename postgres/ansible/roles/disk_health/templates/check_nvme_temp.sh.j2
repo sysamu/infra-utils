@@ -1,0 +1,65 @@
+#!/bin/bash
+# Temperatura NVMe via lm-sensors (Composite sensor).
+# Tcrit fabricante tipico ~87C — alertar a {{ nvme_temp_warn_c }}C.
+
+WARN={{ nvme_temp_warn_c }}
+CRIT={{ nvme_temp_crit_c }}
+
+{% raw %}
+if ! command -v sensors &>/dev/null; then
+  echo "UNKNOWN: lm-sensors not installed"
+  exit 3
+fi
+
+OUTPUT=$(sensors 2>/dev/null)
+if [[ -z "$OUTPUT" ]]; then
+  echo "UNKNOWN: sensors returned no data"
+  exit 3
+fi
+
+MAX_TEMP=0
+MAX_LABEL=""
+DETAILS=()
+IN_NVME=0
+
+while IFS= read -r line; do
+  if [[ "$line" =~ ^nvme-pci- ]]; then
+    IN_NVME=1
+    CURRENT_ADAPTER="$line"
+    continue
+  fi
+  if [[ -z "$line" ]]; then
+    IN_NVME=0
+    continue
+  fi
+  if [[ $IN_NVME -eq 1 && "$line" =~ ^Composite[[:space:]]*:[[:space:]]*\+([0-9]+)\. ]]; then
+    TEMP="${BASH_REMATCH[1]}"
+    LABEL="${CURRENT_ADAPTER}"
+    DETAILS+=("${LABEL}=${TEMP}C")
+    if (( TEMP > MAX_TEMP )); then
+      MAX_TEMP=$TEMP
+      MAX_LABEL="$LABEL"
+    fi
+  fi
+done <<< "$OUTPUT"
+
+if [[ ${#DETAILS[@]} -eq 0 ]]; then
+  echo "UNKNOWN: no NVMe temperature sensors found via lm-sensors"
+  exit 3
+fi
+
+SUMMARY="${DETAILS[*]}"
+{% endraw %}
+
+if (( MAX_TEMP >= CRIT )); then
+  echo "CRITICAL: NVMe ${MAX_LABEL}=${MAX_TEMP}C (crit=${CRIT}C) -- ${SUMMARY}"
+  exit 2
+fi
+
+if (( MAX_TEMP >= WARN )); then
+  echo "WARNING: NVMe ${MAX_LABEL}=${MAX_TEMP}C (warn=${WARN}C) -- ${SUMMARY}"
+  exit 1
+fi
+
+echo "OK: NVMe temps OK max=${MAX_TEMP}C -- ${SUMMARY}"
+exit 0

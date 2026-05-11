@@ -1,0 +1,5 @@
+---
+ansible_deploy_user: ansible
+ansible_deploy_user_shell: /bin/bash
+ansible_deploy_pubkey: ""
+ansible_deploy_pubkey_ci: ""

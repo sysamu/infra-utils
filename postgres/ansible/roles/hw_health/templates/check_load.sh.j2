@@ -1,0 +1,29 @@
+#!/bin/bash
+# Load average relativo al número de CPUs.
+# Alerta cuando loadavg1 supera nproc * ratio configurado.
+
+WARN_RATIO={{ load_warn_ratio }}
+CRIT_RATIO={{ load_crit_ratio }}
+
+NPROC=$(nproc)
+LOADAVG1=$(awk '{print $1}' /proc/loadavg)
+
+# Comparación con bc para floats
+WARN_THRESH=$(echo "$NPROC * $WARN_RATIO" | bc)
+CRIT_THRESH=$(echo "$NPROC * $CRIT_RATIO" | bc)
+
+IS_CRIT=$(echo "$LOADAVG1 >= $CRIT_THRESH" | bc)
+IS_WARN=$(echo "$LOADAVG1 >= $WARN_THRESH" | bc)
+
+if [[ "$IS_CRIT" -eq 1 ]]; then
+  echo "CRITICAL: load=${LOADAVG1} nproc=${NPROC} threshold=${CRIT_THRESH} (ratio ${CRIT_RATIO}x)"
+  exit 1
+fi
+
+if [[ "$IS_WARN" -eq 1 ]]; then
+  echo "WARNING: load=${LOADAVG1} nproc=${NPROC} threshold=${WARN_THRESH} (ratio ${WARN_RATIO}x)"
+  exit 1
+fi
+
+echo "OK: load=${LOADAVG1} nproc=${NPROC}"
+exit 0

@@ -1,0 +1,107 @@
+---
+# ── Dependencias ──────────────────────────────────────────────────────────────
+
+- name: Install hw monitoring dependencies
+  ansible.builtin.apt:
+    name:
+      - lm-sensors
+      - sysstat
+      - edac-utils
+    state: present
+    update_cache: true
+
+- name: Enable sysstat data collection service
+  ansible.builtin.service:
+    name: sysstat
+    enabled: true
+    state: started
+  ignore_errors: true
+
+- name: Run sensors-detect non-interactively
+  ansible.builtin.shell: yes "" | sensors-detect --auto 2>/dev/null || true
+  changed_when: false
+  args:
+    creates: /etc/modules-load.d/lm_sensors.conf
+
+# ── Verificar que sensors devuelve datos ─────────────────────────────────────
+
+- name: Check sensors output
+  ansible.builtin.command: sensors
+  register: _sensors_output
+  changed_when: false
+  failed_when: false
+
+- name: Warn if sensors returns no data
+  ansible.builtin.debug:
+    msg: "WARNING: sensors returned no data — cpu_temp check will be skipped. Run sensors-detect manually if needed."
+  when: _sensors_output.rc != 0 or _sensors_output.stdout | length == 0
+
+- name: Set sensors_available fact
+  ansible.builtin.set_fact:
+    sensors_available: "{{ _sensors_output.rc == 0 and _sensors_output.stdout | length > 0 }}"
+
+# ── Autodiscover discos para IO check ────────────────────────────────────────
+
+- name: Discover block devices for IO monitoring (same logic as disk_health)
+  ansible.builtin.shell: |
+    ls /dev/nvme?n? 2>/dev/null || true
+    ls /dev/sd? 2>/dev/null || true
+  register: _hw_disks_raw
+  changed_when: false
+
+- name: Set hw_disks fact
+  ansible.builtin.set_fact:
+    hw_disks: "{{ _hw_disks_raw.stdout_lines | select('match', '^/dev/(nvme|sd)') | list }}"
+
+- name: Report disks for IO monitoring
+  ansible.builtin.debug:
+    msg: "Disks for IO monitoring: {{ hw_disks | join(', ') if hw_disks else 'none' }}"
+
+# ── Deploy scripts ────────────────────────────────────────────────────────────
+
+- name: Deploy hw health check scripts (templates)
+  ansible.builtin.template:
+    src: "{{ item.src }}"
+    dest: "/usr/local/bin/{{ item.dest }}"
+    owner: root
+    group: root
+    mode: "0755"
+  loop:
+    - { src: check_cpu_temp.sh.j2,      dest: check_cpu_temp.sh }
+    - { src: check_nic_temp.sh.j2,      dest: check_nic_temp.sh }
+    - { src: check_io_congestion.sh.j2, dest: check_io_congestion.sh }
+    - { src: check_load.sh.j2,          dest: check_load.sh }
+    - { src: check_ecc.sh.j2,           dest: check_ecc.sh }
+
+- name: Deploy hw health check scripts (static)
+  ansible.builtin.copy:
+    src: check_nvme_wear.sh
+    dest: /usr/local/bin/check_nvme_wear.sh
+    owner: root
+    group: root
+    mode: "0755"
+
+# ── Monit (solo si está instalado) ───────────────────────────────────────────
+
+- name: Check if monit is installed
+  ansible.builtin.command: which monit
+  register: _monit_present
+  changed_when: false
+  failed_when: false
+
+- name: Deploy monit hw checks
+  ansible.builtin.template:
+    src: "{{ item.src }}"
+    dest: "/etc/monit/conf.d/{{ item.dest }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - { src: check_cpu_temp.j2,      dest: check_cpu_temp,      sensors: true }
+    - { src: check_nic_temp.j2,      dest: check_nic_temp,      sensors: true }
+    - { src: check_io_congestion.j2, dest: check_io_congestion, sensors: false }
+    - { src: check_nvme_wear.j2,     dest: check_nvme_wear,     sensors: false }
+    - { src: check_load.j2,          dest: check_load,          sensors: false }
+    - { src: check_ecc.j2,           dest: check_ecc,           sensors: false }
+  when: _monit_present.rc == 0 and (not item.sensors or sensors_available)
+  notify: reload monit

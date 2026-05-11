@@ -12,6 +12,7 @@ Two GitHub remotes:
 
 ```
 postgres/
+├── ansible/             # Ansible for bare-metal Postgres nodes (see section below)
 ├── raid/
 │   ├── create-raid.sh   # Unified RAID 0/1/10 for PostgreSQL bare-metal
 │   └── README.md
@@ -20,10 +21,12 @@ postgres/
     └── README.md
 
 proxmox/
+├── ansible/             # (future) Ansible for Proxmox hosts
 ├── post-install/        # Proxmox post-install scripts
 └── network/             # Bridge, VLAN, SDN configs
 
 ovh/
+├── ansible/             # (future) Ansible for OVH-specific provisioning
 ├── post-install/        # Per-range post-install (so-you-start, advance-dedicated, kimsufi)
 └── models/              # Hardware profiles per server model (.env files)
 
@@ -31,6 +34,8 @@ sysctl/
 └── proxmox-vm-host.conf # sysctl for Proxmox hypervisor hosts
 
 common/
+├── ansible/
+│   └── roles/           # Shared roles (e.g. base_user) — referenced via roles_path
 └── lib/
     └── utils.sh         # Shared: logging, dry_run_guard, require_root, etc.
 ```
@@ -63,8 +68,38 @@ common/
 - Each model gets a `.env` profile under `ovh/models/` defining disk layout, RAID defaults, and primary interface.
 - Post-install scripts under `ovh/post-install/<range>/` source the relevant profile.
 
+## Ansible (bare-metal PostgreSQL)
+
+Located under `postgres/ansible/`. Each domain has its own `ansible/` subtree — Proxmox and OVH will get theirs when needed. Shared roles live in `common/ansible/roles/` and are referenced via `roles_path`.
+
+```
+postgres/ansible/
+├── ansible.cfg                         # remote_user=ansible, key=~/.ssh/id_ansible
+│                                       # roles_path = roles:../../common/ansible/roles
+├── inventory/
+│   ├── hosts.yml.example               # groups: pg_primary, pg_replica, pg_all, bare_metal
+│   └── group_vars/all.yml.example      # alert_email, pg_*, ansible_deploy_*
+├── playbooks/
+│   ├── bootstrap.yml                   # run with -u root --private-key ~/.ssh/id_sistemas
+│   ├── pg_monitoring.yml
+│   └── raid_disk_health.yml
+└── roles/
+    ├── base_user/            # creates 'ansible' user, authorizes pubkeys, disables root SSH
+    ├── postgres_monitoring/  # postgres_exporter + monit checks
+    ├── raid_health/          # autodiscovers mdadm arrays, checks state, monit alerts
+    └── disk_health/          # autodiscovers NVMe/SATA/SAS, smartd config, monit alerts
+```
+
+### Ansible conventions
+
+- **Bootstrap flow**: first run uses `-u root --private-key ~/.ssh/id_sistemas`; after that, `remote_user: ansible` with `~/.ssh/id_ansible`.
+- `raid_health` and `disk_health` autodiscover everything — no need to declare disks or arrays in inventory.
+- `disk_health` handles NVMe (`-d nvme`), SATA, and SAS transparently.
+- Check scripts in `/usr/local/bin/` (`check_smart.sh`, `check_mdadm.sh`) are used by monit and return 0=ok / 1=warn-or-critical.
+- Secrets (`pg_monitoring_password`) go in `group_vars/all.yml` encrypted with `ansible-vault`.
+
 ## What's not here
 
 - Postgres configuration (`postgresql.conf`, `pg_hba.conf`) — out of scope.
-- Ansible/Terraform — scripts are intentionally standalone bash.
-- Monitoring setup — separate repo.
+- Proxmox Ansible playbooks — separate repo (`proxmox-infra/ansible`).
+- Monitoring stack (Prometheus, Grafana) — separate repo.

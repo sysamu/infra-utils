@@ -1,0 +1,4 @@
+check program smart_{{ item | basename }}
+  with path "/usr/local/bin/check_smart.sh {{ item }}"
+  every 3 cycles
+  if status != 0 for 2 cycles then alert

@@ -1,0 +1,10 @@
+check process postgres_{{ item.version }}_{{ item.name }} with pidfile /var/run/postgresql/{{ item.version }}-{{ item.name }}.pid
+  start program = "/usr/bin/pg_ctlcluster {{ item.version }} {{ item.name }} start"
+  stop  program = "/usr/bin/pg_ctlcluster {{ item.version }} {{ item.name }} stop"
+  if failed host localhost port {{ item.port }} protocol pgsql for 3 cycles then alert
+  if failed host localhost port {{ item.port }} protocol pgsql for 5 cycles then restart
+
+check process postgres_exporter with matching "postgres_exporter"
+  start program = "/bin/systemctl start postgres_exporter"
+  stop  program = "/bin/systemctl stop postgres_exporter"
+  if not exist for 2 cycles then alert

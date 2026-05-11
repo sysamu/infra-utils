@@ -1,0 +1,33 @@
+---
+# Bootstrap completo de un nodo bare-metal PostgreSQL.
+# Instala y configura: usuario ansible, monit, RAID health, disk health, hw health.
+# NO incluye postgres_monitoring — ejecutar pg_monitoring.yml por separado
+# una vez confirmado que Postgres está corriendo.
+#
+# Primera ejecución (con root):
+#   ansible-playbook playbooks/bootstrap_node.yml \
+#     -i inventory/hosts.yml \
+#     -u root \
+#     --limit hapostgres01
+#
+# Ejecuciones posteriores (con usuario ansible):
+#   ansible-playbook playbooks/bootstrap_node.yml \
+#     -i inventory/hosts.yml \
+#     --limit hapostgres01
+
+- name: Bootstrap bare-metal node
+  hosts: bare_metal
+  gather_facts: false
+  pre_tasks:
+    - name: Wait for SSH connectivity
+      ansible.builtin.wait_for_connection:
+        timeout: 30
+
+    - name: Gather facts
+      ansible.builtin.setup:
+  roles:
+    - role: base_user
+    - role: monit
+    - role: raid_health
+    - role: disk_health
+    - role: hw_health

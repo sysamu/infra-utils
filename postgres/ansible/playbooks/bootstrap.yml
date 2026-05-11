@@ -1,0 +1,17 @@
+---
+# Bootstrap inicial — ejecutar con root y tu clave de sistemas:
+#
+#   ansible-playbook playbooks/bootstrap.yml \
+#     -i inventory/hosts.yml \
+#     -u root \
+#     --private-key ~/.ssh/id_sistemas \
+#     -e "ansible_deploy_pubkey='$(cat ~/.ssh/id_sistemas.pub)'"
+#
+# Después de este playbook, el acceso root por SSH queda deshabilitado
+# y todo se gestiona con el usuario ansible.
+
+- name: Bootstrap ansible deploy user on bare-metal hosts
+  hosts: bare_metal
+  gather_facts: false
+  roles:
+    - role: base_user

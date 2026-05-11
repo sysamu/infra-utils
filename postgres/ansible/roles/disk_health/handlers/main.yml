@@ -1,0 +1,10 @@
+---
+- name: restart smartd
+  ansible.builtin.service:
+    name: smartd
+    state: restarted
+
+- name: reload monit
+  ansible.builtin.service:
+    name: monit
+    state: reloaded

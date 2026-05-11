@@ -1,0 +1,67 @@
+#!/bin/bash
+# Temperatura de NICs via lm-sensors.
+# Monitoriza: sensor0 en adaptadores mlx5-pci-* (Mellanox ConnectX).
+# Tcrit fabricante MLX5: 105C.
+
+NIC_WARN={{ nic_temp_warn_c }}
+NIC_CRIT={{ nic_temp_crit_c }}
+
+{% raw %}
+if ! command -v sensors &>/dev/null; then
+  echo "UNKNOWN: lm-sensors not installed"
+  exit 3
+fi
+
+OUTPUT=$(sensors 2>/dev/null)
+if [[ -z "$OUTPUT" ]]; then
+  echo "UNKNOWN: sensors returned no data"
+  exit 3
+fi
+
+NIC_SENSORS=()
+IN_MLX=0
+CURRENT_ADAPTER=""
+
+while IFS= read -r line; do
+  if [[ "$line" =~ ^mlx5-pci- ]]; then
+    IN_MLX=1
+    CURRENT_ADAPTER="$line"
+    continue
+  fi
+  if [[ -z "$line" ]]; then
+    IN_MLX=0
+    continue
+  fi
+  if [[ $IN_MLX -eq 1 && "$line" =~ ^(sensor[0-9]+)[[:space:]]*:[[:space:]]*\+([0-9]+)\. ]]; then
+    NIC_SENSORS+=("${CURRENT_ADAPTER}/${BASH_REMATCH[1]}:${BASH_REMATCH[2]}")
+  fi
+done <<< "$OUTPUT"
+
+if [[ ${#NIC_SENSORS[@]} -eq 0 ]]; then
+  echo "UNKNOWN: no MLX5 NIC temperature sensors found"
+  exit 3
+fi
+
+SUMMARY=""
+for S in "${NIC_SENSORS[@]}"; do
+  SUMMARY+="NIC(${S%%:*})=${S##*:}C "
+done
+SUMMARY="${SUMMARY% }"
+
+WORST_STATE=0
+WORST_MSG=""
+
+for S in "${NIC_SENSORS[@]}"; do
+  LABEL="${S%%:*}"; TEMP="${S##*:}"
+{% endraw %}
+  if (( TEMP >= NIC_CRIT )); then
+    [[ $WORST_STATE -lt 2 ]] && { WORST_STATE=2; WORST_MSG="CRITICAL: ${LABEL}=${TEMP}C (crit=${NIC_CRIT}C)"; }
+  elif (( TEMP >= NIC_WARN )); then
+    [[ $WORST_STATE -lt 1 ]] && { WORST_STATE=1; WORST_MSG="WARNING: ${LABEL}=${TEMP}C (warn=${NIC_WARN}C)"; }
+  fi
+{% raw %}
+done
+
+echo "${WORST_MSG:+${WORST_MSG} -- }${SUMMARY}"
+exit $WORST_STATE
+{% endraw %}

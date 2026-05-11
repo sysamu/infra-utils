@@ -1,0 +1,5 @@
+check program nvme_temp
+  with path "/usr/local/bin/check_nvme_temp.sh"
+  every {{ monit_hw_check_cycles | default(2) }} cycles
+  if status == 1 for 2 cycles then alert
+  if status == 2 for 1 cycles then alert

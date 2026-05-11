@@ -1,0 +1,56 @@
+#!/bin/bash
+# IO congestion via iostat — comprueba %util por dispositivo.
+# Alerta si algún disco supera el umbral durante el periodo de muestreo.
+
+WARN={{ io_util_warn_pct }}
+CRIT={{ io_util_crit_pct }}
+INTERVAL={{ io_sample_seconds }}
+
+if ! command -v iostat &>/dev/null; then
+  echo "UNKNOWN: sysstat/iostat not installed"
+  exit 3
+fi
+
+{% raw %}
+TMPFILE=$(mktemp /tmp/iostat_check.XXXXXX)
+PARSEDFILE=$(mktemp /tmp/iostat_parsed.XXXXXX)
+
+iostat -x -d "$INTERVAL" 2 2>/dev/null > "$TMPFILE"
+awk 'BEGIN{sample=0} /^Device/{sample++;next} sample==2 && /^[a-z]/{print $1,$NF}' "$TMPFILE" > "$PARSEDFILE"
+
+MAX_UTIL=0
+MAX_DEV=""
+FOUND=0
+SUMMARY=""
+
+while read -r DEV UTIL; do
+  [[ "$DEV" =~ ^(dm-|loop|sr|md) ]] && continue
+  FOUND=1
+  SUMMARY+="${DEV}=${UTIL}% "
+  UTIL_INT=${UTIL%.*}
+  if [[ -z "$MAX_DEV" ]] || (( UTIL_INT > MAX_UTIL )); then
+    MAX_UTIL=$UTIL_INT
+    MAX_DEV="$DEV"
+  fi
+done < "$PARSEDFILE"
+
+rm -f "$TMPFILE" "$PARSEDFILE"
+
+if [[ $FOUND -eq 0 ]]; then
+  echo "UNKNOWN: no disk data from iostat"
+  exit 3
+fi
+{% endraw %}
+
+if (( MAX_UTIL >= CRIT )); then
+  echo "CRITICAL: IO saturacion ${MAX_DEV}=${MAX_UTIL}% (crit=${CRIT}%) -- ${SUMMARY}"
+  exit 2
+fi
+
+if (( MAX_UTIL >= WARN )); then
+  echo "WARNING: IO saturacion ${MAX_DEV}=${MAX_UTIL}% (warn=${WARN}%) -- ${SUMMARY}"
+  exit 1
+fi
+
+echo "OK: IO max saturacion ${MAX_UTIL}% en ${MAX_DEV} -- ${SUMMARY}"
+exit 0

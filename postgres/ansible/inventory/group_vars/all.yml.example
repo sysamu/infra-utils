@@ -1,0 +1,35 @@
+---
+# ── Variables globales ────────────────────────────────────────────────────────
+# Copia a all.yml y rellena los valores reales. No commitees all.yml con secretos.
+# Usar ansible-vault para los campos marcados con [vault]
+
+# ── Usuario ansible (bootstrap) ───────────────────────────────────────────────
+ansible_deploy_user: ansible
+ansible_deploy_user_shell: /bin/bash
+ansible_deploy_pubkey: "ssh-ed25519 AAAAC3... tu_clave_de_sistemas"
+# ansible_deploy_pubkey_ci: "ssh-ed25519 AAAAC3... runner_ci"
+
+# ── Alertas por email (raid_health, disk_health, hw_health) ───────────────────
+alert_email: ops@example.com
+alert_email_from: "ansible-alerts@{{ inventory_hostname }}"
+
+# ── Postgres (pg_version se autodetecta — solo definir como override) ─────────
+pg_monitoring_user: monitoring
+pg_monitoring_password: "CHANGE_ME"   # [vault]
+
+# ── Monit ─────────────────────────────────────────────────────────────────────
+monit_httpd_port: 7780
+monit_httpd_user: admin
+monit_httpd_password: "CHANGE_ME"     # [vault]
+monit_mail_enabled: false
+# monit_mail_server: smtp.example.com
+# monit_mail_port: 587
+# monit_mail_from: monit@example.com
+# monit_mail_to: ops@example.com
+
+# Filesystem de datos de Postgres — monitorizar espacio además de /
+monit_extra_filesystems:
+  - name: pgdata
+    path: /var/lib/postgresql
+    warn: 75
+    crit: 85

@@ -1,0 +1,29 @@
+## Managed by Ansible — do not edit manually
+
+set daemon {{ monit_daemon_interval }}
+set log {{ monit_log }}
+set idfile {{ monit_idfile }}
+set statefile {{ monit_statefile }}
+
+{% if monit_mail_enabled %}
+set mailserver {{ monit_mail_server }} port {{ monit_mail_port }}
+  username "" password ""
+set alert {{ monit_mail_to }}
+set mail-format {
+  from: {{ monit_mail_from }}
+  subject: [monit] $ACTION $SERVICE on $HOST
+  message: Host: $HOST
+    Service: $SERVICE
+    Action: $ACTION
+    Date: $DATE
+    Description: $DESCRIPTION
+}
+{% endif %}
+
+{% if monit_httpd_enabled %}
+set httpd port {{ monit_httpd_port }}
+  use address {{ monit_httpd_bind }}
+  allow {{ monit_httpd_user }}:"{{ monit_httpd_password }}"
+{% endif %}
+
+include /etc/monit/conf.d/*

@@ -1,0 +1,31 @@
+---
+# Temperatura CPU — Intel server Tjmax ~97°C, alertar bien antes
+cpu_temp_warn_c: 80
+cpu_temp_crit_c: 90
+
+# Temperatura NIC — MLX5 Tcrit=105°C según fabricante
+nic_temp_warn_c: 90
+nic_temp_crit_c: 98
+
+# IO congestion (iostat %util por disco)
+io_util_warn_pct: 80
+io_util_crit_pct: 95
+io_sample_seconds: 3
+
+# NVMe wear (Percentage Used attr)
+nvme_wear_warn_pct: 70
+nvme_wear_crit_pct: 90
+
+# NVMe temperatura — Tcrit fabricante ~87°C (ver smartd.conf para umbrales por disco)
+nvme_temp_warn_c: 70
+nvme_temp_crit_c: 82
+
+# Load average (relativo a nproc)
+load_warn_ratio: 2.0
+load_crit_ratio: 4.0
+
+# ECC memory errors
+ecc_enabled: true
+
+# monit: ciclos entre checks (cada ciclo = 30s por defecto en monit)
+monit_hw_check_cycles: 2

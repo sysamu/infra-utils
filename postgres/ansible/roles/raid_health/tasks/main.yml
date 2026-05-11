@@ -1,0 +1,117 @@
+---
+- name: Install mdadm
+  ansible.builtin.apt:
+    name: mdadm
+    state: present
+    update_cache: true
+
+- name: Discover active MD arrays
+  ansible.builtin.shell: |
+    grep -oP '^md\d+' /proc/mdstat 2>/dev/null || true
+  register: _md_arrays_raw
+  changed_when: false
+
+- name: Set md_arrays fact
+  ansible.builtin.set_fact:
+    md_arrays: "{{ _md_arrays_raw.stdout_lines | select('match', '^md') | list }}"
+
+- name: Report discovered arrays
+  ansible.builtin.debug:
+    msg: "Arrays found: {{ md_arrays | join(', ') if md_arrays else 'none' }}"
+
+- name: Gather mdadm state for each array
+  ansible.builtin.shell: |
+    mdadm --detail /dev/{{ item }} 2>/dev/null | awk -F: '/^\s+State :/{gsub(/ /,"",$2); print $2}'
+  loop: "{{ md_arrays }}"
+  register: _md_states
+  changed_when: false
+  failed_when: false
+
+- name: Report array health summary
+  ansible.builtin.debug:
+    msg: "/dev/{{ item.item }}: {{ item.stdout | trim | default('unknown') }}"
+  loop: "{{ _md_states.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+
+- name: Fail if any array is in a critical state
+  ansible.builtin.fail:
+    msg: "/dev/{{ item.item }} is in state '{{ item.stdout | trim }}' — immediate attention required"
+  when: >-
+    'degraded' in (item.stdout | trim) or
+    'failed'   in (item.stdout | trim) or
+    'inactive' in (item.stdout | trim)
+  loop: "{{ _md_states.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+
+- name: Configure mdadm email alerts
+  ansible.builtin.lineinfile:
+    path: /etc/mdadm/mdadm.conf
+    regexp: "^MAILADDR"
+    line: "MAILADDR {{ alert_email }}"
+    state: present
+  when: alert_email | length > 0
+  notify: restart mdadm-monitor
+
+- name: Deploy mdadm monitoring service override (scan interval)
+  ansible.builtin.copy:
+    dest: /etc/mdadm/mdadm.conf
+    content: |
+      # Managed by Ansible — do not edit manually
+      MAILADDR {{ alert_email }}
+      MAILFROM {{ alert_email_from }}
+      DEVICE partitions
+      AUTO +all
+    owner: root
+    group: root
+    mode: "0644"
+  when: alert_email | length > 0
+  notify: restart mdadm-monitor
+
+- name: Detect mdadm monitor service name
+  ansible.builtin.shell: |
+    for svc in mdadm mdmonitor mdadm-monitor; do
+      systemctl list-unit-files "${svc}.service" 2>/dev/null | grep -q "${svc}" && echo "$svc" && exit 0
+    done
+    echo ""
+  register: _mdadm_svc
+  changed_when: false
+
+- name: Enable mdadm monitor service (if present)
+  ansible.builtin.service:
+    name: "{{ _mdadm_svc.stdout | trim }}"
+    enabled: true
+    state: started
+  when: _mdadm_svc.stdout | trim | length > 0
+
+- name: Check if monit is installed
+  ansible.builtin.command: which monit
+  register: _monit_present
+  changed_when: false
+  failed_when: false
+
+- name: Deploy monit check for each MD array
+  ansible.builtin.template:
+    src: check_raid.j2
+    dest: "/etc/monit/conf.d/check_raid_{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop: "{{ md_arrays }}"
+  when: _monit_present.rc == 0
+  notify: reload monit
+
+- name: Remove stale monit raid checks for arrays no longer present
+  ansible.builtin.shell: |
+    for f in /etc/monit/conf.d/check_raid_*; do
+      dev=$(basename "$f" | sed 's/check_raid_//')
+      if ! grep -q "^${dev}" /proc/mdstat 2>/dev/null; then
+        rm -f "$f"
+        echo "removed $f"
+      fi
+    done
+  register: _stale_removed
+  changed_when: "'removed' in _stale_removed.stdout"
+  when: _monit_present.rc == 0
+  notify: reload monit

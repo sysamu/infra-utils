@@ -1,0 +1,20 @@
+---
+- name: reload systemd
+  ansible.builtin.systemd:
+    daemon_reload: true
+
+- name: restart monit
+  ansible.builtin.shell: |
+    pgrep -x monit && kill -9 $(pgrep -x monit) 2>/dev/null || true
+    sleep 1
+    systemctl start monit
+  changed_when: true
+
+- name: reload monit
+  ansible.builtin.shell: |
+    if pgrep -x monit &>/dev/null; then
+      monit reload
+    else
+      systemctl start monit
+    fi
+  changed_when: true

@@ -1,0 +1,5 @@
+check program ecc_memory
+  with path "/usr/local/bin/check_ecc.sh"
+  every 30 cycles
+  if status == 1 for 1 cycles then alert
+  if status == 2 for 1 cycles then alert

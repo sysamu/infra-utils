@@ -1,0 +1,62 @@
+---
+# ── Inventario bare-metal PostgreSQL ─────────────────────────────────────────
+# Copia este archivo a hosts.yml y ajusta IPs y variables.
+#
+# Convención:
+#   - Los hosts se definen UNA SOLA VEZ bajo su proveedor (hetzner/ovh/...).
+#   - pg_primary y pg_replica son grupos de rol — solo referencian hosts.
+#   - En un failover/switchover: mover el hostname entre pg_primary y pg_replica.
+#     No hace falta renombrar máquinas ni tocar host_vars.
+#
+# Límites útiles:
+#   --limit pg_primary       → solo el nodo de escritura actual
+#   --limit pg_replica       → todas las réplicas
+#   --limit pg_all           → todos los nodos Postgres
+#   --limit hetzner          → solo máquinas Hetzner
+#   --limit ovh              → solo máquinas OVH
+#   --limit bare_metal       → todos los bare-metal
+
+all:
+  vars:
+    ansible_user: ansible
+
+  children:
+
+    # ── Hosts por proveedor / DC ──────────────────────────────────────────────
+    # Los hosts se definen aquí con su IP y variables fijas (nunca cambian).
+    hetzner:
+      hosts:
+        pg-htz-01:
+          ansible_host: 1.2.3.4
+          # pg_data_dir: /var/lib/postgresql/16/main   # override si no es el default
+          # pg_port: 5432
+        pg-htz-02:
+          ansible_host: 1.2.3.5
+
+    ovh:
+      hosts:
+        pg-ovh-01:
+          ansible_host: 1.2.3.6
+
+    # ── Rol actual ───────────────────────────────────────────────────────────
+    # Editar aquí en caso de failover/switchover — solo mover el hostname.
+    # Solo referenciar hosts ya definidos arriba, sin redefinir ansible_host.
+    pg_primary:
+      hosts:
+        pg-htz-01:
+
+    pg_replica:
+      hosts:
+        pg-htz-02:
+        pg-ovh-01:         # réplica offsite en cascada desde primary
+
+    # ── Grupos derivados (no editar) ─────────────────────────────────────────
+    pg_all:
+      children:
+        pg_primary:
+        pg_replica:
+
+    bare_metal:
+      children:
+        hetzner:
+        ovh:
