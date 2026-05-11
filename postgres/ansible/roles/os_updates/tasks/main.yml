@@ -1,0 +1,41 @@
+---
+- name: Update apt cache
+  ansible.builtin.apt:
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Hold postgres packages to prevent accidental upgrades
+  ansible.builtin.shell: |
+    dpkg -l | awk '/^ii.*postgresql/{print $2}' | xargs apt-mark hold 2>/dev/null || true
+  changed_when: false
+
+- name: Report held postgres packages
+  ansible.builtin.shell: apt-mark showhold
+  register: _held
+  changed_when: false
+
+- name: Show held packages
+  ansible.builtin.debug:
+    msg: "Held (will NOT be upgraded): {{ _held.stdout_lines }}"
+
+- name: Upgrade all packages except held (security + regular)
+  ansible.builtin.apt:
+    upgrade: safe
+    autoremove: true
+    autoclean: true
+  register: _apt_upgrade
+
+- name: Report upgraded packages
+  ansible.builtin.debug:
+    msg: "{{ _apt_upgrade.stdout_lines | select('match', '^Inst') | list }}"
+  when: _apt_upgrade.stdout_lines is defined
+
+- name: Check if reboot is required
+  ansible.builtin.stat:
+    path: /var/run/reboot-required
+  register: _reboot_required
+
+- name: Warn if reboot required
+  ansible.builtin.debug:
+    msg: "REBOOT REQUIRED on {{ inventory_hostname }} — schedule maintenance window"
+  when: _reboot_required.stat.exists

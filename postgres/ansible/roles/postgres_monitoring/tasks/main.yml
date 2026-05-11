@@ -1,10 +1,9 @@
 ---
-# ── Autodetección de clusters Postgres ───────────────────────────────────────
+# ── Autodetección de clusters Postgres en ejecución ──────────────────────────
 
 - name: Detect running Postgres clusters via pg_lsclusters
   ansible.builtin.shell: |
-    # Solo clusters con status 'online' o 'running' — ignora versiones antiguas paradas
-    pg_lsclusters --no-header 2>/dev/null | awk '$4 ~ /^(online|running)$/ {print $1 ":" $2 ":" $3}'
+    pg_lsclusters --no-header 2>/dev/null | awk '$4 ~ /^(online|running)/ {print $1 ":" $2 ":" $3}'
   register: _pg_clusters_raw
   changed_when: false
   failed_when: false
@@ -24,94 +23,14 @@
 
 - name: Report detected running clusters
   ansible.builtin.debug:
-    msg: "Running Postgres clusters: {{ pg_clusters | map(attribute='version') | zip(pg_clusters | map(attribute='name')) | map('join', '/') | join(', ') if pg_clusters else 'none — skipping' }}"
+    msg: "Running Postgres clusters: {{ pg_clusters | map(attribute='version') | zip(pg_clusters | map(attribute='name')) | map('join', '/') | join(', ') if pg_clusters else 'none' }}"
 
 - name: Fail if no running Postgres clusters detected
   ansible.builtin.fail:
     msg: "No running Postgres clusters found — check pg_lsclusters on this host"
   when: pg_clusters | length == 0
 
-# ── Usuario de monitorización ─────────────────────────────────────────────────
-# Se crea en el cluster primary (primer cluster detectado si no se especifica)
-
-- name: Create monitoring user in PostgreSQL
-  community.postgresql.postgresql_user:
-    name: "{{ pg_monitoring_user }}"
-    password: "{{ pg_monitoring_password }}"
-    role_attr_flags: LOGIN,NOSUPERUSER,NOCREATEDB,NOCREATEROLE
-    port: "{{ pg_clusters[0].port }}"
-    state: present
-  become: true
-  become_user: postgres
-
-- name: Grant pg_monitor role to monitoring user (PG 10+)
-  community.postgresql.postgresql_membership:
-    group: pg_monitor
-    target_roles: "{{ pg_monitoring_user }}"
-    port: "{{ pg_clusters[0].port }}"
-    state: present
-  become: true
-  become_user: postgres
-
-# ── postgres_exporter ─────────────────────────────────────────────────────────
-
-- name: Create postgres_exporter system user
-  ansible.builtin.user:
-    name: "{{ pg_exporter_user }}"
-    shell: /usr/sbin/nologin
-    system: true
-    create_home: false
-    state: present
-
-- name: Create postgres_exporter install directory
-  ansible.builtin.file:
-    path: "{{ pg_exporter_install_dir }}"
-    state: directory
-    owner: "{{ pg_exporter_user }}"
-    group: "{{ pg_exporter_user }}"
-    mode: "0755"
-
-- name: Download postgres_exporter binary
-  ansible.builtin.get_url:
-    url: "https://github.com/prometheus-community/postgres_exporter/releases/download/v{{ pg_exporter_version }}/postgres_exporter-{{ pg_exporter_version }}.linux-amd64.tar.gz"
-    dest: "/tmp/postgres_exporter-{{ pg_exporter_version }}.tar.gz"
-    mode: "0644"
-
-- name: Extract postgres_exporter
-  ansible.builtin.unarchive:
-    src: "/tmp/postgres_exporter-{{ pg_exporter_version }}.tar.gz"
-    dest: "{{ pg_exporter_install_dir }}"
-    remote_src: true
-    extra_opts: ["--strip-components=1"]
-    creates: "{{ pg_exporter_install_dir }}/postgres_exporter"
-
-- name: Deploy postgres_exporter environment file
-  ansible.builtin.template:
-    src: postgres_exporter.env.j2
-    dest: "{{ pg_exporter_install_dir }}/postgres_exporter.env"
-    owner: "{{ pg_exporter_user }}"
-    group: "{{ pg_exporter_user }}"
-    mode: "0600"
-  notify: restart postgres_exporter
-
-- name: Deploy postgres_exporter systemd unit
-  ansible.builtin.template:
-    src: postgres_exporter.service.j2
-    dest: /etc/systemd/system/postgres_exporter.service
-    owner: root
-    group: root
-    mode: "0644"
-  notify:
-    - reload systemd
-    - restart postgres_exporter
-
-- name: Enable and start postgres_exporter
-  ansible.builtin.service:
-    name: postgres_exporter
-    enabled: true
-    state: started
-
-# ── Monit (opcional — solo si está instalado) ─────────────────────────────────
+# ── Monit (solo si está instalado) ───────────────────────────────────────────
 
 - name: Check if monit is installed
   ansible.builtin.command: which monit
@@ -119,7 +38,7 @@
   changed_when: false
   failed_when: false
 
-- name: Deploy monit check for each Postgres cluster
+- name: Deploy monit check for each running Postgres cluster
   ansible.builtin.template:
     src: check_postgres.j2
     dest: "/etc/monit/conf.d/check_postgres_{{ item.version }}_{{ item.name }}"
@@ -127,5 +46,21 @@
     group: root
     mode: "0644"
   loop: "{{ pg_clusters }}"
+  when: _monit_present.rc == 0
+  notify: reload monit
+
+- name: Remove stale monit postgres checks for clusters no longer running
+  ansible.builtin.shell: |
+    for f in /etc/monit/conf.d/check_postgres_*; do
+      [[ -f "$f" ]] || continue
+      ver=$(basename "$f" | awk -F_ '{print $3}')
+      name=$(basename "$f" | awk -F_ '{print $4}')
+      if ! pg_lsclusters --no-header 2>/dev/null | awk '$4~/^(online|running)$/{print $1"/"$2}' | grep -q "^${ver}/${name}$"; then
+        rm -f "$f"
+        echo "removed $f"
+      fi
+    done
+  register: _stale_pg
+  changed_when: "'removed' in _stale_pg.stdout"
   when: _monit_present.rc == 0
   notify: reload monit

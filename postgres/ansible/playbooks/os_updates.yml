@@ -1,0 +1,19 @@
+---
+# Actualiza el OS base de los nodos bare-metal.
+# IMPORTANTE: Los paquetes de PostgreSQL se ponen en hold automáticamente
+# para evitar upgrades accidentales. Las actualizaciones de Postgres
+# deben hacerse de forma controlada y coordinada con el DBA.
+#
+# Comprobar qué se va a actualizar sin aplicar:
+#   ansible-playbook playbooks/os_updates.yml -i inventory/hosts.yml --check
+#
+# Actualizar solo OVH:
+#   ansible-playbook playbooks/os_updates.yml -i inventory/hosts.yml --limit ovh
+#
+# Actualizar todo:
+#   ansible-playbook playbooks/os_updates.yml -i inventory/hosts.yml
+
+- name: OS base updates (excludes PostgreSQL packages)
+  hosts: bare_metal
+  roles:
+    - role: os_updates
