@@ -51,6 +51,10 @@ for S in "${CPU_SENSORS[@]}"; do
 {% raw %}
 done
 
-echo "${WORST_MSG:+${WORST_MSG} -- }${SUMMARY}"
+if [[ $WORST_STATE -eq 0 ]]; then
+  echo "OK: ${SUMMARY}"
+else
+  echo "${WORST_MSG} -- ${SUMMARY}"
+fi
 exit $WORST_STATE
 {% endraw %}
