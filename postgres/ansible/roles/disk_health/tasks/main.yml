@@ -58,11 +58,21 @@
     mode: "0644"
   notify: restart smartd
 
+- name: Detect smartd service name
+  ansible.builtin.shell: |
+    for svc in smartd smartmontools; do
+      systemctl list-unit-files "${svc}.service" 2>/dev/null | grep -q "${svc}" && echo "$svc" && exit 0
+    done
+    echo ""
+  register: _smartd_svc
+  changed_when: false
+
 - name: Enable and start smartd
   ansible.builtin.service:
-    name: smartd
+    name: "{{ _smartd_svc.stdout | trim }}"
     enabled: true
     state: started
+  when: _smartd_svc.stdout | trim | length > 0
 
 # ── Scripts de check para monit ───────────────────────────────────────────────
 

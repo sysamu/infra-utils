@@ -1,8 +1,11 @@
 ---
 - name: restart smartd
-  ansible.builtin.service:
-    name: smartd
-    state: restarted
+  ansible.builtin.shell: |
+    for svc in smartd smartmontools; do
+      systemctl list-unit-files "${svc}.service" 2>/dev/null | grep -q "${svc}" && systemctl restart "$svc" && exit 0
+    done
+    exit 0
+  changed_when: true
 
 - name: reload monit
   ansible.builtin.service:

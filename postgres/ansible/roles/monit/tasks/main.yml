@@ -64,6 +64,14 @@
   when: monit_extra_filesystems | length > 0
   notify: reload monit
 
+- name: Ensure systemd override directory exists
+  ansible.builtin.file:
+    path: /etc/systemd/system/monit.service.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
 - name: Fix systemd override — foreground mode + capabilities for hw checks
   ansible.builtin.copy:
     dest: /etc/systemd/system/monit.service.d/override.conf
