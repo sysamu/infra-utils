@@ -1,7 +1,7 @@
 ## Managed by Ansible — do not edit manually
 check system $HOST
-  if loadavg (1min) > 4 for 5 cycles then alert
-  if loadavg (5min) > 2 for 10 cycles then alert
+  if loadavg (1min) per core > {{ monit_load_1min_per_core | default(2) }} for 5 cycles then alert
+  if loadavg (5min) per core > {{ monit_load_5min_per_core | default(1.5) }} for 10 cycles then alert
   if cpu usage (user) > {{ monit_cpu_user_warn }}% for {{ monit_cpu_cycles }} cycles then alert
   if cpu usage (user) > {{ monit_cpu_user_crit }}% for {{ monit_cpu_cycles }} cycles then alert
   if memory usage > {{ monit_mem_warn }}% for 5 cycles then alert

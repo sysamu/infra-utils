@@ -19,6 +19,8 @@ monit_mail_from: ""
 monit_mail_to: ""
 
 # Umbrales sistema
+monit_load_1min_per_core: 2       # loadavg1 / nproc > X → alert (ej: 80 cores * 2 = load 160)
+monit_load_5min_per_core: 1.5     # loadavg5 / nproc > X → alert (ej: 80 cores * 1.5 = load 120)
 monit_cpu_user_warn: 80
 monit_cpu_user_crit: 95
 monit_cpu_cycles: 5
