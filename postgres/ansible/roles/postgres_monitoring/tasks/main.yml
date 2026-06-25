@@ -30,6 +30,35 @@
     msg: "No running Postgres clusters found — check pg_lsclusters on this host"
   when: pg_clusters | length == 0
 
+# ── Credenciales seguras ─────────────────────────────────────────────────────
+
+- name: Check if pg_monit secret file exists
+  ansible.builtin.stat:
+    path: "{{ pg_monit_secret_path }}"
+  register: _pg_secret
+
+- name: Warn if pg_monit secret not configured
+  ansible.builtin.debug:
+    msg: >-
+      WARNING: {{ pg_monit_secret_path }} does not exist.
+      Create it with: echo 'export PGPASSWORD="your_password"' > {{ pg_monit_secret_path }} && chmod 600 {{ pg_monit_secret_path }}
+      Lag, locks and connections checks will fail until this is done.
+  when: not _pg_secret.stat.exists
+
+# ── Scripts de checks ────────────────────────────────────────────────────────
+
+- name: Deploy postgres check scripts
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: "/usr/local/bin/{{ item }}"
+    owner: root
+    group: root
+    mode: "0755"
+  loop:
+    - check_pg_lag.sh
+    - check_pg_locks.sh
+    - check_pg_connections.sh
+
 # ── Monit (solo si está instalado) ───────────────────────────────────────────
 
 - name: Check if monit is installed
@@ -55,7 +84,7 @@
       [[ -f "$f" ]] || continue
       ver=$(basename "$f" | awk -F_ '{print $3}')
       name=$(basename "$f" | awk -F_ '{print $4}')
-      if ! pg_lsclusters --no-header 2>/dev/null | awk '$4~/^(online|running)$/{print $1"/"$2}' | grep -q "^${ver}/${name}$"; then
+      if ! pg_lsclusters --no-header 2>/dev/null | awk '$4~/^(online|running)/{print $1"/"$2}' | grep -q "^${ver}/${name}$"; then
         rm -f "$f"
         echo "removed $f"
       fi

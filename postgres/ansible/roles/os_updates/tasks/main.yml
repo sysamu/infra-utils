@@ -1,4 +1,34 @@
 ---
+# ── Deshabilitar upgrades automáticos (protege Postgres de upgrades no controlados) ──
+
+- name: Disable unattended-upgrades service
+  ansible.builtin.service:
+    name: unattended-upgrades
+    enabled: false
+    state: stopped
+  ignore_errors: true
+
+- name: Disable packagekit service
+  ansible.builtin.service:
+    name: packagekit
+    enabled: false
+    state: stopped
+  ignore_errors: true
+
+- name: Mask unattended-upgrades to prevent reactivation
+  ansible.builtin.systemd:
+    name: unattended-upgrades
+    masked: true
+  ignore_errors: true
+
+- name: Mask packagekit to prevent reactivation
+  ansible.builtin.systemd:
+    name: packagekit
+    masked: true
+  ignore_errors: true
+
+# ── Upgrade manual controlado ────────────────────────────────────────────────
+
 - name: Update apt cache
   ansible.builtin.apt:
     update_cache: true
