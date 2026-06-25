@@ -5,22 +5,22 @@ check process postgres_{{ item.version }}_{{ item.name }}
   with pidfile /var/run/postgresql/{{ item.version }}-{{ item.name }}.pid
   group postgres
 
-check program postgres_ping
+check program postgres_ping_{{ item.version }}_{{ item.name }}
   with path "/usr/bin/pg_isready -h localhost -p {{ item.port }} -U {{ pg_monit_user }}"
   group postgres
   if status != 0 for 3 cycles then alert
 
-check program postgres_lag
+check program postgres_lag_{{ item.version }}_{{ item.name }}
   with path "/usr/local/bin/check_pg_lag.sh {{ item.port }}"
   group postgres
   if status != 0 then alert
 
-check program postgres_locks
+check program postgres_locks_{{ item.version }}_{{ item.name }}
   with path "/usr/local/bin/check_pg_locks.sh {{ item.port }}"
   group postgres
   if status != 0 for 3 cycles then alert
 
-check program postgres_connections
+check program postgres_connections_{{ item.version }}_{{ item.name }}
   with path "/usr/local/bin/check_pg_connections.sh {{ item.port }} {{ pg_connections_max_total }} {{ pg_connections_max_idle }}"
   group postgres
   if status != 0 for 2 cycles then alert
