@@ -8,5 +8,5 @@ pg_monit_user: postgres
 # Umbrales
 pg_lag_crit_seconds: 300          # 5 minutos
 pg_locks_crit: 4                  # locks NOT granted
-pg_connections_max_total: 200
-pg_connections_max_idle: 50
+pg_connections_max_total: 550
+pg_connections_max_idle: 400
