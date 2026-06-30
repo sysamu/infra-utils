@@ -2,7 +2,7 @@
 # Conexiones totales e idle — umbrales pasados por parámetro.
 # Uso: check_pg_connections.sh <port> <max_total> <max_idle>
 
-source /root/.pg_monit_secret 2>/dev/null
+[ -f /root/.pg_monit_secret ] && source /root/.pg_monit_secret
 
 PG_PORT="${1:-5432}"
 MAX_TOTAL="${2:-200}"

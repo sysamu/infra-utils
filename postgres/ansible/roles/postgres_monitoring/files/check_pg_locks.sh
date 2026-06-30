@@ -2,7 +2,7 @@
 # Hard locks — cuenta transacciones bloqueadas (NOT granted).
 # Umbral configurable via variable de entorno PG_LOCKS_CRIT (default: 4).
 
-source /root/.pg_monit_secret 2>/dev/null
+[ -f /root/.pg_monit_secret ] && source /root/.pg_monit_secret
 
 PG_PORT="${1:-5432}"
 LOCKS_CRIT="${PG_LOCKS_CRIT:-4}"

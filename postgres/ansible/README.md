@@ -145,4 +145,56 @@ entre `pg_primary` y `pg_replica`. No hay que tocar nada más.
 
 `ansible.cfg`, `inventory/hosts.yml` e `inventory/group_vars/all.yml`
 están en `.gitignore`. Usar siempre los `.example` como plantilla.
-Secrets en `all.yml` deben cifrarse con `ansible-vault`.
+
+## Onboarding de nuevos colaboradores (DBA, etc.)
+
+`hosts.yml` contiene FQDNs reales de la infraestructura — no se versiona en
+claro. Para que un colaborador nuevo pueda clonar el repo y tener el
+inventario sin que tú se lo reenvíes cada vez, se versiona **cifrado** con
+`ansible-vault`.
+
+### Cifrar el inventario (una sola vez, lo hace quien administra el repo)
+
+```bash
+cp inventory/hosts.yml inventory/hosts.vault.yml
+ansible-vault encrypt inventory/hosts.vault.yml
+# pide una contraseña — esa es la contraseña del equipo, compártela
+# por un canal seguro (Signal, 1Password, etc.), nunca por git/Slack en claro
+
+git add inventory/hosts.vault.yml   # sí se commitea, está cifrado
+```
+
+Repite lo mismo con `group_vars/all.vault.yml` si quieres versionar también
+esas variables (passwords, pubkeys) cifradas.
+
+### Flujo para un colaborador nuevo
+
+```bash
+git clone <repo>
+cd postgres/ansible
+cp ansible.cfg.example ansible.cfg
+# editar: private_key_file con su propia clave SSH
+
+# Pide la contraseña del vault a quien administra el repo, y la guarda:
+echo 'la-contraseña-del-equipo' > ~/.vault_pass_infra-utils
+chmod 600 ~/.vault_pass_infra-utils
+
+# Descifra el inventario real a partir del versionado:
+ansible-vault decrypt inventory/hosts.vault.yml --output inventory/hosts.yml
+```
+
+Con `vault_password_file` configurado en `ansible.cfg` (ya viene del
+`.example`), los playbooks descifran automáticamente sin pedir nada más.
+
+### Editar el inventario cifrado
+
+```bash
+ansible-vault edit inventory/hosts.vault.yml
+# abre en $EDITOR ya descifrado, vuelve a cifrar al guardar
+```
+
+Después de editar, regenera `hosts.yml` en claro para uso local:
+
+```bash
+ansible-vault decrypt inventory/hosts.vault.yml --output inventory/hosts.yml
+```

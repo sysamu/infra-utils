@@ -14,6 +14,12 @@ credentials/
 **/ansible/.vault_pass
 **/ansible/vault_pass.txt
 **/ansible/*.retry
+# Excepción: hosts.yml y all.yml CIFRADOS con ansible-vault sí se versionan
+!**/ansible/inventory/hosts.vault.yml
+!**/ansible/inventory/group_vars/all.vault.yml
+
+# Vault password file — nunca se commitea, vive en el home del usuario
+.vault_pass_infra-utils
 
 # Backups generados por los scripts
 *.bak

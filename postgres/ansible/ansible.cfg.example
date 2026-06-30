@@ -9,6 +9,9 @@ gathering         = smart
 fact_caching      = jsonfile
 fact_caching_connection = /tmp/ansible_facts
 fact_caching_timeout = 3600
+# Crea este fichero con la contraseña del vault del equipo (pídesela a quien
+# administre el repo). No se commitea — debe quedar en .gitignore.
+vault_password_file = ~/.vault_pass_infra-utils
 
 [privilege_escalation]
 become        = True

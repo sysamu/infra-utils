@@ -85,6 +85,7 @@
       MemoryDenyWriteExecute=false
       NoNewPrivileges=false
       ProtectSystem=false
+      ProtectHome=false
       PrivateDevices=false
     owner: root
     group: root

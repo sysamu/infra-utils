@@ -3,7 +3,8 @@
 # Detecta automáticamente si es master o replica y aplica la query correspondiente.
 # Umbral configurable via variable de entorno PG_LAG_CRIT (default: 300s / 5min).
 
-source /root/.pg_monit_secret 2>/dev/null
+# Credenciales via ~/.pgpass (método estándar) o /root/.pg_monit_secret (legacy)
+[ -f /root/.pg_monit_secret ] && source /root/.pg_monit_secret
 
 PG_PORT="${1:-5432}"
 LAG_CRIT="${PG_LAG_CRIT:-300}"
@@ -12,11 +13,11 @@ LAG=$(/usr/bin/psql -h localhost -p "$PG_PORT" -U postgres -d postgres -w -q -t 
 SELECT CASE
     WHEN pg_is_in_recovery() THEN
         CASE
-            WHEN pg_last_wal_receive_lsn() = pg_last_wal_replay_lsn() THEN 0.0
-            ELSE COALESCE(EXTRACT(EPOCH FROM (now() - pg_last_xact_replay_timestamp())), 0.0)
+            WHEN pg_last_wal_receive_lsn() = pg_last_wal_replay_lsn() THEN 0.000000
+            ELSE ROUND(COALESCE(EXTRACT(EPOCH FROM (now() - pg_last_xact_replay_timestamp())), 0.0)::numeric, 6)
         END
     ELSE
-        COALESCE((SELECT MAX(EXTRACT(EPOCH FROM replay_lag)) FROM pg_stat_replication), 0.0)
+        ROUND(COALESCE((SELECT MAX(EXTRACT(EPOCH FROM replay_lag)) FROM pg_stat_replication), 0.0)::numeric, 6)
 END AS lag_seconds;
 " 2>/dev/null)
 
